@@ -33,28 +33,27 @@ function getDBConnection() {
  */
 function checkAdminAuth() {
     // Проверяем, есть ли данные авторизации
-    return true;
-    // if (empty($_SERVER['PHP_AUTH_USER']) || empty($_SERVER['PHP_AUTH_PW'])) {
-    //     return false;
-    // }
+    if (empty($_SERVER['PHP_AUTH_USER']) || empty($_SERVER['PHP_AUTH_PW'])) {
+        return false;
+    }
     
-    // $login = $_SERVER['PHP_AUTH_USER'];
-    // $password = $_SERVER['PHP_AUTH_PW'];
+    $login = $_SERVER['PHP_AUTH_USER'];
+    $password = $_SERVER['PHP_AUTH_PW'];
     
-    // try {
-    //     $pdo = getDBConnection();
-    //     $stmt = $pdo->prepare("SELECT password_hash FROM admin_users WHERE login = ?");
-    //     $stmt->execute([$login]);
-    //     $admin = $stmt->fetch(PDO::FETCH_ASSOC);
+    try {
+        $pdo = getDBConnection();
+        $stmt = $pdo->prepare("SELECT password_hash FROM admin_users WHERE login = ?");
+        $stmt->execute([$login]);
+        $admin = $stmt->fetch(PDO::FETCH_ASSOC);
         
-    //     if ($admin && password_verify($password, $admin['password_hash'])) {
-    //         return true;
-    //     }
-    // } catch (PDOException $e) {
-    //     return false;
-    // }
+        if ($admin && password_verify($password, $admin['password_hash'])) {
+            return true;
+        }
+    } catch (PDOException $e) {
+        return false;
+    }
     
-    // return false;
+    return false;
 }
 
 function requestAuth() {
