@@ -395,7 +395,7 @@ $totalStats = getTotalStats($pdo);
                                 endforeach; 
                                 ?>
                             </td>
-                            <td><?= htmlspecialchars(mb_substr($app['biography'] ?? '', 0, 50)) ?>...</td>
+                            <td><?= htmlspecialchars(substr($app['biography'] ?? '', 0, 50)) ?>...</td>
                             <td><?= $app['contract_agreed'] ? '✅ Да' : '❌ Нет' ?></td>
                             <td><?= $app['created_at'] ?></td>
                             <td class="actions">
