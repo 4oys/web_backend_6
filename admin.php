@@ -1,37 +1,122 @@
 <?php
 
-require_once 'config.php';
+$host = 'localhost';
+$dbname = 'u82564';
+$username = 'u82564';
+$password = '1341640';
 
-if (isset($_GET['logout'])) {
+try {
+    $pdo = new PDO(
+        "mysql:host=$host;dbname=$dbname;charset=utf8mb4",
+        $username,
+        $password,
+        [PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION]
+    );
+} catch (PDOException $e) {
+    die("Ошибка подключения к базе данных: " . $e->getMessage());
+}
+
+function getAllApplications($pdo) {
+    $stmt = $pdo->query("
+        SELECT a.*, GROUP_CONCAT(pl.name SEPARATOR ', ') as languages
+        FROM task5_applications a
+        LEFT JOIN task5_application_languages al ON a.id = al.application_id
+        LEFT JOIN task5_programming_languages pl ON al.language_id = pl.id
+        GROUP BY a.id
+        ORDER BY a.id DESC
+    ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function deleteApplication($pdo, $id) {
+    try {
+        $pdo->prepare("DELETE FROM task5_application_languages WHERE application_id = ?")->execute([$id]);
+        $pdo->prepare("DELETE FROM task5_applications WHERE id = ?")->execute([$id]);
+        return true;
+    } catch (PDOException $e) {
+        return false;
+    }
+}
+
+function getLanguageStats($pdo) {
+    $stmt = $pdo->query("
+        SELECT pl.name, COUNT(al.application_id) as count
+        FROM task5_programming_languages pl
+        LEFT JOIN task5_application_languages al ON pl.id = al.language_id
+        GROUP BY pl.id
+        ORDER BY count DESC, pl.name ASC
+    ");
+    return $stmt->fetchAll(PDO::FETCH_ASSOC);
+}
+
+function getTotalStats($pdo) {
+    $totalUsers = $pdo->query("SELECT COUNT(*) FROM task5_applications")->fetchColumn();
+    $totalMen = $pdo->query("SELECT COUNT(*) FROM task5_applications WHERE gender = 'male'")->fetchColumn();
+    $totalWomen = $pdo->query("SELECT COUNT(*) FROM task5_applications WHERE gender = 'female'")->fetchColumn();
+    
+    return [
+        'total' => $totalUsers,
+        'men' => $totalMen,
+        'women' => $totalWomen
+    ];
+}
+
+
+$pdo->exec("
+    CREATE TABLE IF NOT EXISTS admin_users (
+        id INT(10) UNSIGNED NOT NULL AUTO_INCREMENT,
+        login VARCHAR(50) NOT NULL UNIQUE,
+        password_hash VARCHAR(255) NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+");
+
+
+$stmt = $pdo->prepare("SELECT COUNT(*) FROM admin_users WHERE login = 'admin'");
+$stmt->execute();
+if ($stmt->fetchColumn() == 0) {
+    $pdo->prepare("INSERT INTO admin_users (login, password_hash) VALUES ('admin', '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi')")->execute();
+}
+
+// HTTP-авторизация
+if (empty($_SERVER['PHP_AUTH_USER']) || empty($_SERVER['PHP_AUTH_PW'])) {
     header('HTTP/1.1 401 Unauthorized');
     header('WWW-Authenticate: Basic realm="Admin Panel - Task6"');
-    echo '<h1>🔐 Вы вышли из системы</h1>';
-    echo '<p><a href="admin.php">Войти снова</a></p>';
+    echo '<h1>🔐 Требуется авторизация</h1>';
     exit();
 }
 
-if (!checkAdminAuth()) {
-    requestAuth();  
+$stmt = $pdo->prepare("SELECT password_hash FROM admin_users WHERE login = ?");
+$stmt->execute([$_SERVER['PHP_AUTH_USER']]);
+$admin = $stmt->fetch(PDO::FETCH_ASSOC);
+
+if (!$admin || !password_verify($_SERVER['PHP_AUTH_PW'], $admin['password_hash'])) {
+    header('HTTP/1.1 401 Unauthorized');
+    header('WWW-Authenticate: Basic realm="Admin Panel - Task6"');
+    echo '<h1>🔐 Неверный логин или пароль</h1>';
+    exit();
 }
+
 
 $message = '';
 $error = '';
 
 if (isset($_GET['delete']) && is_numeric($_GET['delete'])) {
     $id = (int)$_GET['delete'];
-    if (deleteApplication($id)) {
+    if (deleteApplication($pdo, $id)) {
         $message = "✅ Анкета #{$id} успешно удалена";
     } else {
         $error = "❌ Ошибка при удалении анкеты #{$id}";
     }
 }
 
-
-$applications = getAllApplications();
-
-$languageStats = getLanguageStats();
-
-$totalStats = getTotalStats();
+// ============================================
+// ПОЛУЧЕНИЕ ДАННЫХ ДЛЯ ОТОБРАЖЕНИЯ
+// ============================================
+$applications = getAllApplications($pdo);
+$languageStats = getLanguageStats($pdo);
+$totalStats = getTotalStats($pdo);
 
 ?>
 <!DOCTYPE html>
@@ -79,38 +164,6 @@ $totalStats = getTotalStats();
             gap: 10px;
         }
         
-        .logout-btn {
-            background: rgba(255,255,255,0.2);
-            color: white;
-            padding: 10px 20px;
-            border-radius: 40px;
-            text-decoration: none;
-            transition: 0.2s;
-        }
-        
-        .logout-btn:hover {
-            background: rgba(255,255,255,0.3);
-        }
-        
-        /* Сообщения */
-        .message {
-            background: #dcfce7;
-            color: #16a34a;
-            padding: 15px 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            border-left: 4px solid #16a34a;
-        }
-        
-        .error {
-            background: #fee2e2;
-            color: #dc2626;
-            padding: 15px 20px;
-            border-radius: 12px;
-            margin-bottom: 20px;
-            border-left: 4px solid #dc2626;
-        }
-
         .stats-container {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
@@ -133,15 +186,15 @@ $totalStats = getTotalStats();
             display: inline-block;
         }
         
-        .stats-card p {
-            margin: 8px 0;
-            font-size: 16px;
-        }
-        
         .stats-card .number {
             font-size: 32px;
             font-weight: bold;
             color: #667eea;
+        }
+        
+        .stats-card p {
+            margin: 8px 0;
+            font-size: 16px;
         }
         
         .lang-stats {
@@ -155,10 +208,6 @@ $totalStats = getTotalStats();
             border-bottom: 1px solid #e5e7eb;
         }
         
-        .lang-stats .lang-name {
-            font-weight: 500;
-        }
-        
         .lang-stats .lang-count {
             background: #667eea;
             color: white;
@@ -166,7 +215,7 @@ $totalStats = getTotalStats();
             border-radius: 20px;
             font-size: 14px;
         }
-
+        
         .table-container {
             background: white;
             border-radius: 24px;
@@ -184,7 +233,6 @@ $totalStats = getTotalStats();
             color: white;
             padding: 15px;
             text-align: left;
-            font-weight: 600;
         }
         
         td {
@@ -207,7 +255,6 @@ $totalStats = getTotalStats();
             border-radius: 8px;
             text-decoration: none;
             font-size: 13px;
-            transition: 0.2s;
         }
         
         .btn-edit {
@@ -237,27 +284,35 @@ $totalStats = getTotalStats();
             margin: 2px;
         }
         
+        .message {
+            background: #dcfce7;
+            color: #16a34a;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #16a34a;
+        }
+        
+        .error {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 15px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+            border-left: 4px solid #dc2626;
+        }
+        
         @media (max-width: 768px) {
-            th, td {
-                font-size: 12px;
-                padding: 8px;
-            }
-            .actions {
-                flex-direction: column;
-            }
+            th, td { font-size: 12px; padding: 8px; }
+            .actions { flex-direction: column; }
         }
     </style>
 </head>
 <body>
 <div class="container">
     <div class="header">
-        <h1>
-            🔐 Панель администратора
-        </h1>
-        <div>
-            <span>👋 Здравствуйте, администратор</span>
-            <a href="?logout=1" class="logout-btn" onclick="return confirm('Выйти из панели администратора?')">🚪 Выйти</a>
-        </div>
+        <h1>🔐 Панель администратора</h1>
+        <div>👋 Здравствуйте, <?= htmlspecialchars($_SERVER['PHP_AUTH_USER']) ?></div>
     </div>
     
     <?php if ($message): ?>
@@ -268,7 +323,7 @@ $totalStats = getTotalStats();
         <div class="error"><?= htmlspecialchars($error) ?></div>
     <?php endif; ?>
     
-
+    <!-- СТАТИСТИКА -->
     <div class="stats-container">
         <div class="stats-card">
             <h3>📊 Общая статистика</h3>
@@ -276,14 +331,14 @@ $totalStats = getTotalStats();
             <p>👨 Мужчин: <?= $totalStats['men'] ?></p>
             <p>👩 Женщин: <?= $totalStats['women'] ?></p>
         </div>
-
+        
         <div class="stats-card">
             <h3>💻 Языки программирования</h3>
             <?php if (!empty($languageStats)): ?>
                 <ul class="lang-stats">
                     <?php foreach ($languageStats as $lang): ?>
                         <li>
-                            <span class="lang-name"><?= htmlspecialchars($lang['name']) ?></span>
+                            <span><?= htmlspecialchars($lang['name']) ?></span>
                             <span class="lang-count">👥 <?= $lang['count'] ?> чел.</span>
                         </li>
                     <?php endforeach; ?>
@@ -294,7 +349,7 @@ $totalStats = getTotalStats();
         </div>
     </div>
     
-
+    <!-- ТАБЛИЦА С АНКЕТАМИ -->
     <div class="table-container">
         <table>
             <thead>
@@ -327,13 +382,7 @@ $totalStats = getTotalStats();
                             <td><?= htmlspecialchars($app['phone']) ?></td>
                             <td><?= htmlspecialchars($app['email']) ?></td>
                             <td><?= $app['birth_date'] ?></td>
-                            <td>
-                                <?php if ($app['gender'] == 'male'): ?>
-                                    👨 Мужской
-                                <?php else: ?>
-                                    👩 Женский
-                                <?php endif; ?>
-                            </td>
+                            <td><?= $app['gender'] == 'male' ? '👨 Мужской' : '👩 Женский' ?></td>
                             <td>
                                 <?php 
                                 $languages = explode(',', $app['languages'] ?? '');
@@ -352,7 +401,7 @@ $totalStats = getTotalStats();
                             <td class="actions">
                                 <a href="edit.php?id=<?= $app['id'] ?>" class="btn-edit">✏️ Редактировать</a>
                                 <a href="?delete=<?= $app['id'] ?>" class="btn-delete" 
-                                   onclick="return confirm('Удалить анкету пользователя <?= htmlspecialchars($app['fio']) ?>?')">🗑️ Удалить</a>
+                                   onclick="return confirm('Удалить анкету?')">🗑️ Удалить</a>
                             </td>
                         </tr>
                     <?php endforeach; ?>
